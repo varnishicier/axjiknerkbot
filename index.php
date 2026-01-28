@@ -42,9 +42,57 @@ $update = json_decode($content, true);
 
 if (!$update) exit;
 
+
 $message = $update['message'] ?? null;
 $chat_id = $message['chat']['id'] ?? null;
+$from_id = $message['from']['id'] ?? null;
 $text = $message['text'] ?? '';
+
+// Admin-only helper: reply with Telegram file_id for received media
+// Only works for user_id 6309428191
+if ($chat_id && $message && (string)$from_id === '6309428191') {
+    // Photo (array of sizes)
+    if (isset($message['photo']) && is_array($message['photo']) && count($message['photo']) > 0) {
+        $largest = $message['photo'][count($message['photo']) - 1];
+        $file_id = $largest['file_id'] ?? '';
+        $file_unique_id = $largest['file_unique_id'] ?? '';
+
+        $reply = "PHOTO\nfile_id: {$file_id}\nfile_unique_id: {$file_unique_id}";
+        sendMessage($chat_id, $reply);
+        exit;
+    }
+
+    // Video
+    if (isset($message['video']) && is_array($message['video'])) {
+        $file_id = $message['video']['file_id'] ?? '';
+        $file_unique_id = $message['video']['file_unique_id'] ?? '';
+
+        $reply = "VIDEO\nfile_id: {$file_id}\nfile_unique_id: {$file_unique_id}";
+        sendMessage($chat_id, $reply);
+        exit;
+    }
+
+    // Document (in case user sends media as a file)
+    if (isset($message['document']) && is_array($message['document'])) {
+        $file_id = $message['document']['file_id'] ?? '';
+        $file_unique_id = $message['document']['file_unique_id'] ?? '';
+        $file_name = $message['document']['file_name'] ?? '';
+
+        $reply = "DOCUMENT\nfile_name: {$file_name}\nfile_id: {$file_id}\nfile_unique_id: {$file_unique_id}";
+        sendMessage($chat_id, $reply);
+        exit;
+    }
+
+    // Animation (GIF)
+    if (isset($message['animation']) && is_array($message['animation'])) {
+        $file_id = $message['animation']['file_id'] ?? '';
+        $file_unique_id = $message['animation']['file_unique_id'] ?? '';
+
+        $reply = "ANIMATION\nfile_id: {$file_id}\nfile_unique_id: {$file_unique_id}";
+        sendMessage($chat_id, $reply);
+        exit;
+    }
+}
 
 // “Next video” reply-keyboard button
 if ($chat_id && $text === $nextVideoText) {
@@ -210,6 +258,28 @@ function sendVideo($chat_id, $videoSource, $caption = '', $keyboard = null) {
 
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, $api . '/sendVideo');
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_exec($ch);
+    curl_close($ch);
+}
+
+function sendMessage($chat_id, $text, $keyboard = null) {
+    global $api;
+
+    $data = [
+        'chat_id' => $chat_id,
+        'text' => $text,
+        'disable_web_page_preview' => true
+    ];
+
+    if ($keyboard) {
+        $data['reply_markup'] = json_encode($keyboard);
+    }
+
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $api . '/sendMessage');
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
