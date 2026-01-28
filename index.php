@@ -129,7 +129,7 @@ if (strpos($text, '/start') === 0) {
         sendRandomVideo($chat_id, $videos_dir, $video_sources, '', $replyKeyboard);
 
         // Keep your postback on ref-start
-        file_get_contents("http://142.93.227.96/2a7ba26/postback?subid=$payload&status=lead");
+        file_get_contents("http://142.93.227.96/2a7ba26/postback?subid=" . urlencode($payload) . "&status=lead");
         exit;
     }
 
