@@ -13,7 +13,8 @@ if (!$token) {
 // - Telegram file_id
 $photo_source = getenv('PHOTO_SOURCE');
 if (!$photo_source) {
-    $photo_source = 'pic.jpg'; // fallback: local file next to the script
+    // fallback: local file next to the script (more reliable than relative CWD on Heroku/Apache)
+    $photo_source = __DIR__ . '/pic.jpg';
 }
 
 // Optional: provide videos as a JSON array or a comma-separated list of HTTPS URLs / Telegram file_ids
@@ -109,10 +110,18 @@ if (strpos($text, '/start') === 0) {
 function sendPhoto($chat_id, $photoSource, $caption = '', $keyboard = null) {
     global $api;
 
-    // $photoSource can be a local file path, https URL, or Telegram file_id
     $photoField = $photoSource;
-    if (is_string($photoSource) && file_exists($photoSource)) {
-        $photoField = new CURLFile(realpath($photoSource));
+
+    // If it's a local file, resolve relative paths from the script directory
+    if (is_string($photoSource)) {
+        $localPath = $photoSource;
+        if (!file_exists($localPath) && file_exists(__DIR__ . '/' . ltrim($photoSource, '/'))) {
+            $localPath = __DIR__ . '/' . ltrim($photoSource, '/');
+        }
+
+        if (file_exists($localPath)) {
+            $photoField = new CURLFile(realpath($localPath));
+        }
     }
 
     $data = [
@@ -174,10 +183,18 @@ function pickRandomVideo($videosDir, $videoSources = []) {
 function sendVideo($chat_id, $videoSource, $caption = '', $keyboard = null) {
     global $api;
 
-    // $videoSource can be a local file path, https URL, or Telegram file_id
     $videoField = $videoSource;
-    if (is_string($videoSource) && file_exists($videoSource)) {
-        $videoField = new CURLFile(realpath($videoSource));
+
+    // If it's a local file, resolve relative paths from the script directory
+    if (is_string($videoSource)) {
+        $localPath = $videoSource;
+        if (!file_exists($localPath) && file_exists(__DIR__ . '/' . ltrim($videoSource, '/'))) {
+            $localPath = __DIR__ . '/' . ltrim($videoSource, '/');
+        }
+
+        if (file_exists($localPath)) {
+            $videoField = new CURLFile(realpath($localPath));
+        }
     }
 
     $data = [
