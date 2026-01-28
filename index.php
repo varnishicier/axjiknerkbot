@@ -94,7 +94,7 @@ if (strpos($text, '/start') === 0) {
 
     $keyboardButtons[] = [
         [
-            'text' => "gorcnakanhandipum.com",
+            'text' => "Перейти в Канал",
             'url'  => $default_url
         ]
     ];
