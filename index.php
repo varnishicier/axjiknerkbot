@@ -102,7 +102,9 @@ if ($chat_id && $text === $nextVideoText) {
                 ['text' => $nextVideoText]
             ]
         ],
-        'resize_keyboard' => true
+        'resize_keyboard' => true,
+        'is_persistent' => true,
+        'one_time_keyboard' => false
     ];
 
     sendRandomVideo($chat_id, $videos_dir, $video_sources, '', $replyKeyboard);
@@ -123,7 +125,9 @@ if (strpos($text, '/start') === 0) {
                     ['text' => $nextVideoText]
                 ]
             ],
-            'resize_keyboard' => true
+            'resize_keyboard' => true,
+            'is_persistent' => true,
+            'one_time_keyboard' => false
         ];
 
         sendRandomVideo($chat_id, $videos_dir, $video_sources, '', $replyKeyboard);
