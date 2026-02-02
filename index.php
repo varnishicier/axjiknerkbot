@@ -1,26 +1,9 @@
 <?php
-// Helpful logging for debugging webhook issues (goes to Heroku logs)
-error_reporting(E_ALL);
-ini_set('display_errors', '0');
-ini_set('log_errors', '1');
-
 // Read secrets/settings from environment (Heroku Config Vars)
-// Accept either BOT_TOKEN or TELEGRAM_BOT_TOKEN (some deployments use different var names)
 $token = getenv('BOT_TOKEN');
 if (!$token) {
-    $token = getenv('TELEGRAM_BOT_TOKEN');
-}
-
-// Strip accidental wrapping quotes/spaces (common when config vars were set with quotes)
-if (is_string($token)) {
-    $token = trim($token);
-    $token = trim($token, "\"'");
-}
-
-if (!$token) {
-    // Token is required
+    // BOT_TOKEN is required
     http_response_code(500);
-    echo "Missing BOT_TOKEN / TELEGRAM_BOT_TOKEN";
     exit;
 }
 
@@ -55,41 +38,15 @@ $nextVideoText = "📺 Следующее Видео";
 $videos_dir = __DIR__ . '/videos'; // fallback folder if VIDEO_SOURCES is not set
 
 $content = file_get_contents("php://input");
-$content_trim = is_string($content) ? trim($content) : '';
-$update = $content_trim !== '' ? json_decode($content_trim, true) : null;
+$update = json_decode($content, true);
 
-// Always respond 200 to Telegram; use logs for debugging
-http_response_code(200);
+if (!$update) exit;
 
-if (!is_array($update)) {
-    error_log('Webhook hit but no valid JSON. Raw len=' . (is_string($content) ? strlen($content) : 0));
-    echo "OK";
-    exit;
-}
 
-// Support multiple update types
-$message = $update['message']
-    ?? ($update['edited_message'] ?? null)
-    ?? ($update['callback_query']['message'] ?? null);
-
+$message = $update['message'] ?? null;
 $chat_id = $message['chat']['id'] ?? null;
 $from_id = $message['from']['id'] ?? null;
-
-// Text can be on message or callback_query
-$text = $message['text'] ?? ($update['callback_query']['data'] ?? '');
-
-// Log a compact summary for debugging
-$update_type = isset($update['message']) ? 'message'
-    : (isset($update['edited_message']) ? 'edited_message'
-    : (isset($update['callback_query']) ? 'callback_query' : 'other'));
-$text_preview = is_string($text) ? (function_exists('mb_substr') ? mb_substr($text, 0, 120) : substr($text, 0, 120)) : '';
-error_log("TG update_type={$update_type} chat_id=" . ($chat_id ?? 'null') . " from_id=" . ($from_id ?? 'null') . " text=" . $text_preview);
-
-if (!$chat_id) {
-    // Nothing to respond to
-    echo "OK";
-    exit;
-}
+$text = $message['text'] ?? '';
 
 // Admin-only helper: reply with Telegram file_id for received media
 // Only works for user_id 6309428191
@@ -156,35 +113,10 @@ if ($chat_id && $text === $nextVideoText) {
 
 if (strpos($text, '/start') === 0) {
     $parts = explode(' ', trim($text));
+    $payload = $parts[1] ?? 'default';
 
-    $payload_raw = $parts[1] ?? '';
-    $payload = $payload_raw !== '' ? $payload_raw : 'default';
-
-    // Campaign suffix handling
-    // - camp1: kept for backward compatibility
-    // - camp5RpZFn4FoayRc9q: ONLY these payloads should trigger the random-video flow
-    $is_camp1 = false;
-    $camp1_suffix = '_camp1';
-
-    $is_camp5 = false;
-    $camp5_suffix = '_camp5RpZFn4FoayRc9q';
-
-    // Detect & strip camp1 suffix (if present)
-    if ($payload_raw !== '' && (function_exists('str_ends_with') ? str_ends_with($payload_raw, $camp1_suffix) : substr($payload_raw, -strlen($camp1_suffix)) === $camp1_suffix)) {
-        $is_camp1 = true;
-        $stripped = substr($payload_raw, 0, -strlen($camp1_suffix));
-        $payload = $stripped !== '' ? $stripped : 'default';
-    }
-
-    // Detect & strip camp5 suffix (if present)
-    if ($payload_raw !== '' && (function_exists('str_ends_with') ? str_ends_with($payload_raw, $camp5_suffix) : substr($payload_raw, -strlen($camp5_suffix)) === $camp5_suffix)) {
-        $is_camp5 = true;
-        $stripped = substr($payload_raw, 0, -strlen($camp5_suffix));
-        $payload = $stripped !== '' ? $stripped : 'default';
-    }
-
-    // Random-video flow should run ONLY for camp5 payloads
-    $has_ref = ($payload_raw !== '' && $is_camp5);
+    // If /start was used with a ref payload (/start XXXXX) — send random video + show reply keyboard
+    $has_ref = isset($parts[1]) && $parts[1] !== '';
 
     if ($has_ref) {
         $replyKeyboard = [
@@ -200,13 +132,13 @@ if (strpos($text, '/start') === 0) {
 
         sendRandomVideo($chat_id, $videos_dir, $video_sources, '', $replyKeyboard);
 
-        // Postback only on camp5 ref-start
+        // Keep your postback on ref-start
         file_get_contents("http://142.93.227.96/2a7ba26/postback?subid=" . urlencode($payload) . "&status=lead");
         exit;
     }
 
     // Normal /start (no payload) — keep your old behavior (photo + inline button)
-    $default_url = $is_camp1 ? "https://gorcnakanhandipum.com/l" : "https://gorcnakanhandipum.com/";
+    $default_url = "https://gorcnakanhandipum.com/";
 
     $caption = '';
 
@@ -260,9 +192,7 @@ function sendPhoto($chat_id, $photoSource, $caption = '', $keyboard = null) {
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    $resp = curl_exec($ch);
-    if ($resp === false) { error_log('curl_error: ' . curl_error($ch)); }
-    else { $code = curl_getinfo($ch, CURLINFO_HTTP_CODE); if ($code >= 400) { error_log('TG API HTTP ' . $code . ' resp=' . $resp); } }
+    curl_exec($ch);
     curl_close($ch);
 }
 
@@ -335,9 +265,7 @@ function sendVideo($chat_id, $videoSource, $caption = '', $keyboard = null) {
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    $resp = curl_exec($ch);
-    if ($resp === false) { error_log('curl_error: ' . curl_error($ch)); }
-    else { $code = curl_getinfo($ch, CURLINFO_HTTP_CODE); if ($code >= 400) { error_log('TG API HTTP ' . $code . ' resp=' . $resp); } }
+    curl_exec($ch);
     curl_close($ch);
 }
 
@@ -359,11 +287,6 @@ function sendMessage($chat_id, $text, $keyboard = null) {
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    $resp = curl_exec($ch);
-    if ($resp === false) { error_log('curl_error: ' . curl_error($ch)); }
-    else { $code = curl_getinfo($ch, CURLINFO_HTTP_CODE); if ($code >= 400) { error_log('TG API HTTP ' . $code . ' resp=' . $resp); } }
+    curl_exec($ch);
     curl_close($ch);
 }
-
-// Default response for any update that didn't match handlers
-echo "OK";
