@@ -113,10 +113,22 @@ if ($chat_id && $text === $nextVideoText) {
 
 if (strpos($text, '/start') === 0) {
     $parts = explode(' ', trim($text));
-    $payload = $parts[1] ?? 'default';
+
+    $payload_raw = $parts[1] ?? '';
+    $payload = $payload_raw !== '' ? $payload_raw : 'default';
+
+    // campaign suffix handling: strip "_camp1" but keep knowing it was camp1
+    $is_camp1 = false;
+    $suffix = '_camp1';
+
+    if ($payload_raw !== '' && (function_exists('str_ends_with') ? str_ends_with($payload_raw, $suffix) : substr($payload_raw, -strlen($suffix)) === $suffix)) {
+        $is_camp1 = true;
+        $stripped = substr($payload_raw, 0, -strlen($suffix));
+        $payload = $stripped !== '' ? $stripped : 'default';
+    }
 
     // If /start was used with a ref payload (/start XXXXX) — send random video + show reply keyboard
-    $has_ref = isset($parts[1]) && $parts[1] !== '';
+    $has_ref = $payload_raw !== '';
 
     if ($has_ref) {
         $replyKeyboard = [
@@ -138,7 +150,7 @@ if (strpos($text, '/start') === 0) {
     }
 
     // Normal /start (no payload) — keep your old behavior (photo + inline button)
-    $default_url = "https://gorcnakanhandipum.com/";
+    $default_url = $is_camp1 ? "https://gorcnakanhandipum.com/l" : "https://gorcnakanhandipum.com/";
 
     $caption = '';
 
