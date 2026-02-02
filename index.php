@@ -34,14 +34,40 @@ if ($video_sources_env) {
 
 $api = "https://api.telegram.org/bot$token";
 
+// Centralized request helper (also logs Telegram API errors into Heroku logs)
+function tgRequest($method, $data) {
+    global $api;
+
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $api . '/' . $method);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+
+    $resp = curl_exec($ch);
+    $err  = curl_error($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($resp === false) {
+        error_log("TG {$method} curl_error={$err}");
+        return null;
+    }
+
+    $decoded = json_decode($resp, true);
+    if (!is_array($decoded) || !($decoded['ok'] ?? false)) {
+        error_log("TG {$method} http_code={$code} resp=" . $resp);
+    }
+
+    return $decoded;
+}
+
 $nextVideoText = "📺 Следующее Видео";
 $videos_dir = __DIR__ . '/videos'; // fallback folder if VIDEO_SOURCES is not set
 
 $content = file_get_contents("php://input");
 $update = json_decode($content, true);
-
 if (!$update) exit;
-
 
 $message = $update['message'] ?? null;
 $chat_id = $message['chat']['id'] ?? null;
@@ -111,14 +137,33 @@ if ($chat_id && $text === $nextVideoText) {
     exit;
 }
 
-if (strpos($text, '/start') === 0) {
+// /start handler
+if ($chat_id && strpos($text, '/start') === 0) {
     $parts = explode(' ', trim($text));
-    $payload = $parts[1] ?? 'default';
 
-    // If /start was used with a ref payload (/start XXXXX) — send random video + show reply keyboard
-    $has_ref = isset($parts[1]) && $parts[1] !== '';
+    $payload_raw = $parts[1] ?? '';
+    $payload = $payload_raw !== '' ? $payload_raw : 'default';
 
-    if ($has_ref) {
+    // Campaign suffixes
+    $suffix_video = '_camp5RpZFn4FoayRc9q';
+    $suffix_link  = '_campvB9Lz2GSof8qYSq';
+
+    $is_video_campaign = false;
+    $is_link_campaign  = false;
+
+    // Detect & strip suffixes (keep "real payload" in $payload)
+    if ($payload_raw !== '' && (function_exists('str_ends_with') ? str_ends_with($payload_raw, $suffix_video) : substr($payload_raw, -strlen($suffix_video)) === $suffix_video)) {
+        $is_video_campaign = true;
+        $stripped = substr($payload_raw, 0, -strlen($suffix_video));
+        $payload = $stripped !== '' ? $stripped : 'default';
+    } elseif ($payload_raw !== '' && (function_exists('str_ends_with') ? str_ends_with($payload_raw, $suffix_link) : substr($payload_raw, -strlen($suffix_link)) === $suffix_link)) {
+        $is_link_campaign = true;
+        $stripped = substr($payload_raw, 0, -strlen($suffix_link));
+        $payload = $stripped !== '' ? $stripped : 'default';
+    }
+
+    // 1) Random video flow ONLY for the video-campaign suffix
+    if ($is_video_campaign) {
         $replyKeyboard = [
             'keyboard' => [
                 [
@@ -132,22 +177,23 @@ if (strpos($text, '/start') === 0) {
 
         sendRandomVideo($chat_id, $videos_dir, $video_sources, '', $replyKeyboard);
 
-        // Keep your postback on ref-start
-        file_get_contents("http://142.93.227.96/2a7ba26/postback?subid=" . urlencode($payload) . "&status=lead");
+        // Postback only for this campaign (payload suffix stripped)
+        @file_get_contents("http://142.93.227.96/2a7ba26/postback?subid=" . urlencode($payload) . "&status=lead");
         exit;
     }
 
-    // Normal /start (no payload) — keep your old behavior (photo + inline button)
-    $default_url = "https://gorcnakanhandipum.com/";
+    // 2) Otherwise show photo + inline button
+    // Use /l ONLY for the link-campaign suffix
+    $default_url = $is_link_campaign ? "https://gorcnakanhandipum.com/l" : "https://gorcnakanhandipum.com/";
 
     $caption = '';
 
-    $keyboardButtons = [];
-
-    $keyboardButtons[] = [
+    $keyboardButtons = [
         [
-            'text' => "Перейти в Канал",
-            'url'  => $default_url
+            [
+                'text' => "Перейти в Канал",
+                'url'  => $default_url
+            ]
         ]
     ];
 
@@ -160,8 +206,6 @@ if (strpos($text, '/start') === 0) {
 }
 
 function sendPhoto($chat_id, $photoSource, $caption = '', $keyboard = null) {
-    global $api;
-
     $photoField = $photoSource;
 
     // If it's a local file, resolve relative paths from the script directory
@@ -187,19 +231,14 @@ function sendPhoto($chat_id, $photoSource, $caption = '', $keyboard = null) {
         $data['reply_markup'] = json_encode($keyboard);
     }
 
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $api . '/sendPhoto');
-    curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_exec($ch);
-    curl_close($ch);
+    tgRequest('sendPhoto', $data);
 }
 
 function sendRandomVideo($chat_id, $videosDir, $videoSources = [], $caption = '', $keyboard = null) {
     $videoSource = pickRandomVideo($videosDir, $videoSources);
     if (!$videoSource) {
-        // No videos found; silently do nothing
+        // No videos configured; fall back to a message so the user isn't left with nothing
+        sendMessage($chat_id, "⚠️ Видео не настроено. Установи VIDEO_SOURCES (URL или file_id) в Heroku Config Vars.");
         return;
     }
 
@@ -233,8 +272,6 @@ function pickRandomVideo($videosDir, $videoSources = []) {
 }
 
 function sendVideo($chat_id, $videoSource, $caption = '', $keyboard = null) {
-    global $api;
-
     $videoField = $videoSource;
 
     // If it's a local file, resolve relative paths from the script directory
@@ -260,18 +297,10 @@ function sendVideo($chat_id, $videoSource, $caption = '', $keyboard = null) {
         $data['reply_markup'] = json_encode($keyboard);
     }
 
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $api . '/sendVideo');
-    curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_exec($ch);
-    curl_close($ch);
+    tgRequest('sendVideo', $data);
 }
 
 function sendMessage($chat_id, $text, $keyboard = null) {
-    global $api;
-
     $data = [
         'chat_id' => $chat_id,
         'text' => $text,
@@ -282,11 +311,5 @@ function sendMessage($chat_id, $text, $keyboard = null) {
         $data['reply_markup'] = json_encode($keyboard);
     }
 
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $api . '/sendMessage');
-    curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_exec($ch);
-    curl_close($ch);
+    tgRequest('sendMessage', $data);
 }
