@@ -82,7 +82,8 @@ $text = $message['text'] ?? ($update['callback_query']['data'] ?? '');
 $update_type = isset($update['message']) ? 'message'
     : (isset($update['edited_message']) ? 'edited_message'
     : (isset($update['callback_query']) ? 'callback_query' : 'other'));
-error_log("TG update_type={$update_type} chat_id=" . ($chat_id ?? 'null') . " from_id=" . ($from_id ?? 'null') . " text=" . (is_string($text) ? mb_substr($text, 0, 120) : ''));
+$text_preview = is_string($text) ? (function_exists('mb_substr') ? mb_substr($text, 0, 120) : substr($text, 0, 120)) : '';
+error_log("TG update_type={$update_type} chat_id=" . ($chat_id ?? 'null') . " from_id=" . ($from_id ?? 'null') . " text=" . $text_preview);
 
 if (!$chat_id) {
     // Nothing to respond to
