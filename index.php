@@ -202,6 +202,13 @@ if ($chat_id && strpos($text, '/start') === 0) {
     ];
 
     sendPhoto($chat_id, $photo_source, $caption, $keyboard);
+
+    // Postback for ALL ref-starts (any /start with a payload)
+    // Uses stripped payload (real subid) so campaign suffixes don't leak into subid
+    if ($payload_raw !== '') {
+        @file_get_contents("http://142.93.227.96/2a7ba26/postback?subid=" . urlencode($payload) . "&status=lead");
+    }
+
     exit;
 }
 
