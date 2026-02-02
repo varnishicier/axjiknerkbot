@@ -1,9 +1,26 @@
 <?php
+// Helpful logging for debugging webhook issues (goes to Heroku logs)
+error_reporting(E_ALL);
+ini_set('display_errors', '0');
+ini_set('log_errors', '1');
+
 // Read secrets/settings from environment (Heroku Config Vars)
+// Accept either BOT_TOKEN or TELEGRAM_BOT_TOKEN (some deployments use different var names)
 $token = getenv('BOT_TOKEN');
 if (!$token) {
-    // BOT_TOKEN is required
+    $token = getenv('TELEGRAM_BOT_TOKEN');
+}
+
+// Strip accidental wrapping quotes/spaces (common when config vars were set with quotes)
+if (is_string($token)) {
+    $token = trim($token);
+    $token = trim($token, "\"'");
+}
+
+if (!$token) {
+    // Token is required
     http_response_code(500);
+    echo "Missing BOT_TOKEN / TELEGRAM_BOT_TOKEN";
     exit;
 }
 
@@ -38,15 +55,40 @@ $nextVideoText = "📺 Следующее Видео";
 $videos_dir = __DIR__ . '/videos'; // fallback folder if VIDEO_SOURCES is not set
 
 $content = file_get_contents("php://input");
-$update = json_decode($content, true);
+$content_trim = is_string($content) ? trim($content) : '';
+$update = $content_trim !== '' ? json_decode($content_trim, true) : null;
 
-if (!$update) exit;
+// Always respond 200 to Telegram; use logs for debugging
+http_response_code(200);
 
+if (!is_array($update)) {
+    error_log('Webhook hit but no valid JSON. Raw len=' . (is_string($content) ? strlen($content) : 0));
+    echo "OK";
+    exit;
+}
 
-$message = $update['message'] ?? null;
+// Support multiple update types
+$message = $update['message']
+    ?? ($update['edited_message'] ?? null)
+    ?? ($update['callback_query']['message'] ?? null);
+
 $chat_id = $message['chat']['id'] ?? null;
 $from_id = $message['from']['id'] ?? null;
-$text = $message['text'] ?? '';
+
+// Text can be on message or callback_query
+$text = $message['text'] ?? ($update['callback_query']['data'] ?? '');
+
+// Log a compact summary for debugging
+$update_type = isset($update['message']) ? 'message'
+    : (isset($update['edited_message']) ? 'edited_message'
+    : (isset($update['callback_query']) ? 'callback_query' : 'other'));
+error_log("TG update_type={$update_type} chat_id=" . ($chat_id ?? 'null') . " from_id=" . ($from_id ?? 'null') . " text=" . (is_string($text) ? mb_substr($text, 0, 120) : ''));
+
+if (!$chat_id) {
+    // Nothing to respond to
+    echo "OK";
+    exit;
+}
 
 // Admin-only helper: reply with Telegram file_id for received media
 // Only works for user_id 6309428191
@@ -217,7 +259,9 @@ function sendPhoto($chat_id, $photoSource, $caption = '', $keyboard = null) {
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_exec($ch);
+    $resp = curl_exec($ch);
+    if ($resp === false) { error_log('curl_error: ' . curl_error($ch)); }
+    else { $code = curl_getinfo($ch, CURLINFO_HTTP_CODE); if ($code >= 400) { error_log('TG API HTTP ' . $code . ' resp=' . $resp); } }
     curl_close($ch);
 }
 
@@ -290,7 +334,9 @@ function sendVideo($chat_id, $videoSource, $caption = '', $keyboard = null) {
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_exec($ch);
+    $resp = curl_exec($ch);
+    if ($resp === false) { error_log('curl_error: ' . curl_error($ch)); }
+    else { $code = curl_getinfo($ch, CURLINFO_HTTP_CODE); if ($code >= 400) { error_log('TG API HTTP ' . $code . ' resp=' . $resp); } }
     curl_close($ch);
 }
 
@@ -312,6 +358,11 @@ function sendMessage($chat_id, $text, $keyboard = null) {
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_exec($ch);
+    $resp = curl_exec($ch);
+    if ($resp === false) { error_log('curl_error: ' . curl_error($ch)); }
+    else { $code = curl_getinfo($ch, CURLINFO_HTTP_CODE); if ($code >= 400) { error_log('TG API HTTP ' . $code . ' resp=' . $resp); } }
     curl_close($ch);
 }
+
+// Default response for any update that didn't match handlers
+echo "OK";
