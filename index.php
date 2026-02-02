@@ -117,18 +117,31 @@ if (strpos($text, '/start') === 0) {
     $payload_raw = $parts[1] ?? '';
     $payload = $payload_raw !== '' ? $payload_raw : 'default';
 
-    // campaign suffix handling: strip "_camp1" but keep knowing it was camp1
+    // Campaign suffix handling
+    // - camp1: kept for backward compatibility
+    // - camp5RpZFn4FoayRc9q: ONLY these payloads should trigger the random-video flow
     $is_camp1 = false;
-    $suffix = '_camp1';
+    $camp1_suffix = '_camp1';
 
-    if ($payload_raw !== '' && (function_exists('str_ends_with') ? str_ends_with($payload_raw, $suffix) : substr($payload_raw, -strlen($suffix)) === $suffix)) {
+    $is_camp5 = false;
+    $camp5_suffix = '_camp5RpZFn4FoayRc9q';
+
+    // Detect & strip camp1 suffix (if present)
+    if ($payload_raw !== '' && (function_exists('str_ends_with') ? str_ends_with($payload_raw, $camp1_suffix) : substr($payload_raw, -strlen($camp1_suffix)) === $camp1_suffix)) {
         $is_camp1 = true;
-        $stripped = substr($payload_raw, 0, -strlen($suffix));
+        $stripped = substr($payload_raw, 0, -strlen($camp1_suffix));
         $payload = $stripped !== '' ? $stripped : 'default';
     }
 
-    // If /start was used with a ref payload (/start XXXXX) — send random video + show reply keyboard
-    $has_ref = $payload_raw !== '';
+    // Detect & strip camp5 suffix (if present)
+    if ($payload_raw !== '' && (function_exists('str_ends_with') ? str_ends_with($payload_raw, $camp5_suffix) : substr($payload_raw, -strlen($camp5_suffix)) === $camp5_suffix)) {
+        $is_camp5 = true;
+        $stripped = substr($payload_raw, 0, -strlen($camp5_suffix));
+        $payload = $stripped !== '' ? $stripped : 'default';
+    }
+
+    // Random-video flow should run ONLY for camp5 payloads
+    $has_ref = ($payload_raw !== '' && $is_camp5);
 
     if ($has_ref) {
         $replyKeyboard = [
@@ -144,7 +157,7 @@ if (strpos($text, '/start') === 0) {
 
         sendRandomVideo($chat_id, $videos_dir, $video_sources, '', $replyKeyboard);
 
-        // Keep your postback on ref-start
+        // Postback only on camp5 ref-start
         file_get_contents("http://142.93.227.96/2a7ba26/postback?subid=" . urlencode($payload) . "&status=lead");
         exit;
     }
