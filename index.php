@@ -161,6 +161,7 @@ if ($chat_id && strpos($text, '/start') === 0) {
         $stripped = substr($payload_raw, 0, -strlen($suffix_link));
         $payload = $stripped !== '' ? $stripped : 'default';
     }
+    error_log("POSTBACK payload_raw={$payload_raw} stripped_payload={$payload} is_link_campaign=" . ($is_link_campaign?'1':'0') . " is_video_campaign=" . ($is_video_campaign?'1':'0'));
 
     // 1) Random video flow ONLY for the video-campaign suffix
     if ($is_video_campaign) {
